@@ -1,0 +1,4 @@
+ALTER TABLE public.teachers
+  ADD COLUMN IF NOT EXISTS father_name TEXT,
+  ADD COLUMN IF NOT EXISTS date_of_birth DATE,
+  ADD COLUMN IF NOT EXISTS gender TEXT;

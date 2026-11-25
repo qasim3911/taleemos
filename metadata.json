@@ -1,0 +1,6 @@
+{
+  "name": "TaleemOS — School Management Platform",
+  "description": "Multi-tenant School Management Website for Pakistani schools with Student, Staff, Attendance, Fees, Exams, Mobile App Access, and Subscription Governance.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
