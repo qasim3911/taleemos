@@ -11,3 +11,8 @@ run_custom_build = false
 
 [observability]
 enabled = true
+
+[vars]
+NEXT_PUBLIC_SUPABASE_URL = "https://xemgxlypmhavfwkvmmth.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY = "sb_publishable_mZzWmYHI1YZF732rJ3VjPw_pC6CNj1M"
+NEXT_PUBLIC_APP_URL = "https://taleemos.taleemos.workers.dev"
