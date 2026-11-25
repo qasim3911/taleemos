@@ -1,6 +1,13 @@
-name = "school-management-system"
-compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat"]
+name = "taleemos"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
+workers_dev = true
+main = ".open-next/worker.js"
+
+[assets]
+binding = "ASSETS"
+directory = "./.open-next/assets"
+run_custom_build = false
 
 [observability]
 enabled = true
