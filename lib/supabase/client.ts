@@ -14,6 +14,9 @@ export function createSupabaseBrowserClient() {
     const isHttps =
       typeof window !== 'undefined' && window.location.protocol === 'https:';
     browserClient = createBrowserClient(url, anonKey, {
+      auth: {
+        flowType: 'implicit',
+      },
       cookieOptions: isHttps
         ? {
             path: '/',
