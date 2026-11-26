@@ -15,14 +15,14 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-export async function fileToOptimizedDataUrl(file: File, maxDimension = 800): Promise<string> {
+export async function fileToOptimizedDataUrl(file: File, maxDimension = 600): Promise<string> {
   const rawDataUrl = await readFileAsDataUrl(file);
   if (!rawDataUrl.startsWith('data:image/')) {
     throw new Error('Selected file is not a valid image.');
   }
 
-  // Skip canvas re-encoding for SVGs or already small JPEGs/PNGs under 300KB
-  if (file.type === 'image/svg+xml' || file.size <= 300 * 1024) {
+  // Skip canvas re-encoding for SVGs or already small images under 150KB
+  if (file.type === 'image/svg+xml' || file.size <= 150 * 1024) {
     return rawDataUrl;
   }
 
@@ -47,7 +47,16 @@ export async function fileToOptimizedDataUrl(file: File, maxDimension = 800): Pr
         }
 
         ctx.drawImage(img, 0, 0, width, height);
-        const compressed = canvas.toDataURL('image/jpeg', 0.85);
+        // Quality kam karke 200KB target tak le jao
+        let quality = 0.82;
+        let compressed = canvas.toDataURL('image/jpeg', quality);
+        for (let i = 0; i < 3; i++) {
+          // DataURL ka size approx check karo (base64 ~ 1.37x hota hai)
+          const approxBytes = Math.round((compressed.length * 3) / 4);
+          if (approxBytes <= 200 * 1024 || quality <= 0.45) break;
+          quality -= 0.15;
+          compressed = canvas.toDataURL('image/jpeg', quality);
+        }
         resolve(compressed.startsWith('data:image/') ? compressed : rawDataUrl);
       } catch {
         resolve(rawDataUrl);

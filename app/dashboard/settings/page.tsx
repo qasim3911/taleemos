@@ -6,6 +6,41 @@ import { useSchool } from '@/components/dashboard/school-context-provider';
 import { useToast } from '@/components/providers/toast-provider';
 import { Building2, Eye, EyeOff, ImagePlus, KeyRound, Loader2, Lock, Trash2, Upload } from 'lucide-react';
 
+// --- AUTO COMPRESS FUNCTION ---
+async function compressLogo(file: File): Promise<File> {
+  // SVG ko compress nahi karte, wese hi chota hota hai
+  if (file.type === 'image/svg+xml') return file;
+  if (file.size <= 500 * 1024) return file;
+
+  const bitmap = await createImageBitmap(file);
+  const maxSize = 800;
+  let { width, height } = bitmap;
+  if (width > maxSize || height > maxSize) {
+    const ratio = Math.min(maxSize / width, maxSize / height);
+    width = Math.round(width * ratio);
+    height = Math.round(height * ratio);
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return file;
+  ctx.drawImage(bitmap, 0, 0, width, height);
+
+  // Quality kam karke 500KB se neeche lane ki koshish
+  let quality = 0.85;
+  let blob: Blob | null = null;
+  for (let i = 0; i < 4; i++) {
+    blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', quality));
+    if (!blob) break;
+    if (blob.size <= 500 * 1024 || quality <= 0.4) break;
+    quality -= 0.15;
+  }
+  if (!blob) return file;
+  return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.webp', { type: 'image/webp' });
+}
+
 export default function SchoolSettingsPage() {
   const router = useRouter();
   const { school, member, userEmail } = useSchool();
@@ -25,6 +60,7 @@ export default function SchoolSettingsPage() {
   const [logoPreview, setLogoPreview] = useState<string>(school.logo_url || '');
   const [logoUrlInput, setLogoUrlInput] = useState<string>(school.logo_url || '');
   const [removeLogo, setRemoveLogo] = useState(false);
+  const [compressing, setCompressing] = useState(false);
 
   const [form, setForm] = useState({
     name_en: school.name_en || '',
@@ -39,22 +75,35 @@ export default function SchoolSettingsPage() {
     bise_peira_number: school.bise_peira_number || '',
   });
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      toast({ title: 'Logo too large', description: 'Please choose an image under 5 MB.', variant: 'error' });
+    // Pehle 10 MB tak allow, us se bari reject
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: 'Logo too large', description: 'Please choose an image under 10 MB.', variant: 'error' });
       return;
     }
-    setLogoFile(file);
-    setRemoveLogo(false);
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setLogoPreview(reader.result);
+    setCompressing(true);
+    try {
+      const compressed = await compressLogo(file);
+      if (compressed.size > 500 * 1024) {
+        toast({ title: 'Compressed to ' + Math.round(compressed.size / 1024) + ' KB', description: 'Logo auto-compressed for storage saving.', variant: 'success' });
       }
-    };
-    reader.readAsDataURL(file);
+      setLogoFile(compressed);
+      setRemoveLogo(false);
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          setLogoPreview(reader.result);
+        }
+      };
+      reader.readAsDataURL(compressed);
+    } catch {
+      setLogoFile(file);
+    } finally {
+      setCompressing(false);
+      e.target.value = '';
+    }
   };
 
   const handleRemoveLogo = () => {
@@ -201,8 +250,9 @@ export default function SchoolSettingsPage() {
                   School Logo
                 </p>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Displayed in School Sidebar, Portal Header, and Student Portal (PNG, JPG, WebP, SVG · Max 5 MB).
+                  Displayed in School Sidebar, Portal Header, and Student Portal (PNG, JPG, WebP, SVG · Auto-compressed to under 500 KB).
                 </p>
+                {compressing && <p className="text-[11px] text-teal-600 font-semibold">Compressing image...</p>}
               </div>
             </div>
 

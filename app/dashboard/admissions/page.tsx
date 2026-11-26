@@ -10,6 +10,39 @@ import { useToast } from '@/components/providers/toast-provider';
 import { fileToOptimizedDataUrl } from '@/lib/utils/image-data-url';
 import { Loader2, RefreshCw } from 'lucide-react';
 
+// --- SIRF YE FUNCTION ADD KIYA HAI - BAAKI KUCH NAHI KATA ---
+async function compressStudentPhoto(file: File): Promise<File> {
+  if (file.size <= 200 * 1024) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const maxSize = 600;
+    let { width, height } = bitmap;
+    if (width > maxSize || height > maxSize) {
+      const ratio = Math.min(maxSize / width, maxSize / height);
+      width = Math.round(width * ratio);
+      height = Math.round(height * ratio);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    let quality = 0.82;
+    let blob: Blob | null = null;
+    for (let i = 0; i < 4; i++) {
+      blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', quality));
+      if (!blob) break;
+      if (blob.size <= 200 * 1024 || quality <= 0.4) break;
+      quality -= 0.15;
+    }
+    if (!blob) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.webp', { type: 'image/webp' });
+  } catch {
+    return file;
+  }
+}
+
 export default function AdmissionsPage() {
   const router = useRouter();
   const { school, entitlements } = useSchool();
@@ -154,7 +187,8 @@ export default function AdmissionsPage() {
     try {
       let photoDataUrl: string | undefined;
       if (photoFile) {
-        photoDataUrl = await fileToOptimizedDataUrl(photoFile);
+        const compressedFile = await compressStudentPhoto(photoFile);
+        photoDataUrl = await fileToOptimizedDataUrl(compressedFile);
       }
 
       const res = await fetch('/api/students', {
@@ -243,8 +277,9 @@ export default function AdmissionsPage() {
           <div className="mt-3">
             <WebcamPhotoCapture
               valueUrl={photoPreview}
-              onCaptureFile={(file, preview) => {
-                setPhotoFile(file);
+              onCaptureFile={async (file, preview) => {
+                const compressed = await compressStudentPhoto(file);
+                setPhotoFile(compressed);
                 setPhotoPreview(preview);
               }}
             />

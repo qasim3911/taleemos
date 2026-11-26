@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -11,6 +12,39 @@ import { WebcamPhotoCapture } from '@/components/dashboard/webcam-capture';
 import { useToast } from '@/components/providers/toast-provider';
 import { CheckCircle2, Clock, Download, Plus, QrCode, RefreshCw } from 'lucide-react';
 import { extractTeacherProfileMeta, type StaffGender } from '@/lib/staff/profile-meta';
+
+// --- SIRF YE FUNCTION ADD KIYA HAI - BAAKI KUCH NAHI KATA ---
+async function compressStaffPhoto(file: File): Promise<File> {
+  if (file.size <= 200 * 1024) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const maxSize = 600;
+    let { width, height } = bitmap;
+    if (width > maxSize || height > maxSize) {
+      const ratio = Math.min(maxSize / width, maxSize / height);
+      width = Math.round(width * ratio);
+      height = Math.round(height * ratio);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    let quality = 0.82;
+    let blob: Blob | null = null;
+    for (let i = 0; i < 4; i++) {
+      blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', quality));
+      if (!blob) break;
+      if (blob.size <= 200 * 1024 || quality <= 0.4) break;
+      quality -= 0.15;
+    }
+    if (!blob) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.webp', { type: 'image/webp' });
+  } catch {
+    return file;
+  }
+}
 
 interface StaffRow {
   id: string;
@@ -214,8 +248,9 @@ export default function TeachersStaffPage() {
     if (photoFile) {
       const supabase = createSupabaseBrowserClient();
       if (supabase) {
-        const path = `${school.id}/staff-${Date.now()}.jpg`;
-        const { error: upErr } = await supabase.storage.from('documents').upload(path, photoFile, { upsert: true });
+        const compressedFile = await compressStaffPhoto(photoFile);
+        const path = `${school.id}/staff-${Date.now()}.webp`;
+        const { error: upErr } = await supabase.storage.from('documents').upload(path, compressedFile, { upsert: true });
         if (!upErr) {
           const { data: signed } = await supabase.storage
             .from('documents')
@@ -581,8 +616,9 @@ export default function TeachersStaffPage() {
         <form onSubmit={handleCreate} className="space-y-4 text-xs">
           <WebcamPhotoCapture
             valueUrl={photoPreview}
-            onCaptureFile={(file, preview) => {
-              setPhotoFile(file);
+            onCaptureFile={async (file, preview) => {
+              const compressed = await compressStaffPhoto(file);
+              setPhotoFile(compressed);
               setPhotoPreview(preview);
             }}
           />
