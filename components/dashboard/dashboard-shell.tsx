@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { SIDEBAR_NAV_ITEMS } from '@/lib/navigation/sidebar-items';
 import { isFeatureEntitled } from '@/lib/subscription/entitlements';
 import { useSchool } from './school-context-provider';
@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   Moon,
+  RefreshCw,
   Search,
   Sun,
   X,
@@ -21,6 +22,7 @@ import {
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { school, member, entitlements } = useSchool();
   const { theme, toggleTheme } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -28,6 +30,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [pendingLeavesCount, setPendingLeavesCount] = useState(0);
   const [openComplaintsCount, setOpenComplaintsCount] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -142,6 +145,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     }
     await fetch('/api/auth/session', { method: 'DELETE' }).catch(() => null);
     window.location.assign('/login');
+  };
+
+  // NEW: Refresh Button ka kaam
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    router.refresh();
+    window.location.reload();
   };
 
   const visibleItems = useMemo(() => {
@@ -330,6 +340,17 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 </span>
               )}
             </Link>
+
+            {/* NEW: Chota sa Refresh Button - Bell ke bilkul sath */}
+            <button
+              type="button"
+              onClick={handleRefresh}
+              title="Refresh"
+              aria-label="Refresh page"
+              className="rounded-lg border border-slate-200 dark:border-slate-800 p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
 
             <button
               type="button"

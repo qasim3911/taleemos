@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import { useSchool } from '@/components/dashboard/school-context-provider';
 import { DataTable, type TableColumn } from '@/components/dashboard/data-table';
 import { ModalDialog } from '@/components/dashboard/modal-dialog';
 import { useToast } from '@/components/providers/toast-provider';
-import { Plus } from 'lucide-react';
+import { Plus, CheckCheck } from 'lucide-react';
 
 interface NotificationRow {
   id: string;
@@ -39,6 +39,7 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [openSend, setOpenSend] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [markingAll, setMarkingAll] = useState(false);
   const [form, setForm] = useState({
     category: 'fees',
     target_audience: 'Students',
@@ -46,40 +47,68 @@ export default function NotificationsPage() {
     body: '',
   });
 
+  // FIX 1: Debounce + Duplicate fetch rokne ke liye refs
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const isFetchingRef = useRef(false);
+  const lastFetchRef = useRef(0);
+
   const loadData = useCallback(async () => {
+    // FIX 2: Agar abhi fetch chal raha hai ya 1 sec ke andar dobara aaya to skip karo
+    const now = Date.now();
+    if (isFetchingRef.current || now - lastFetchRef.current < 1000) return;
+    isFetchingRef.current = true;
+    lastFetchRef.current = now;
     try {
-      const res = await fetch('/api/notifications');
+      // FIX 3: Limit lagaya - sirf 50 latest notifications
+      const res = await fetch('/api/notifications?limit=50');
       const data = await res.json();
       if (res.ok) {
         setRows(data.notifications ?? []);
       }
+    } catch {
+      // silent - toast bar bar nahi dikhana
     } finally {
+      isFetchingRef.current = false;
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    queueMicrotask(() => {
+  const debouncedLoad = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
       void loadData();
-    });
+    }, 600); // FIX 4: 600ms ruk ke ek hi dafa fetch hoga, loop khatam
+  }, [loadData]);
+
+  useEffect(() => {
+    if (!school?.id) return;
+    void loadData();
+
     const supabase = createSupabaseBrowserClient();
     if (!supabase) return;
-    const ch = supabase
+
+    // FIX 5: Channel ko sahi se cleanup karne ke liye
+    const channel = supabase
       .channel(`notif-feed-${school.id}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'notifications', filter: `school_id=eq.${school.id}` },
+        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `school_id=eq.${school.id}` },
         () => {
-          void loadData();
+          // FIX 6: Sirf INSERT pe fetch, UPDATE pe nahi - taake Mark Read se loop na bane
+          debouncedLoad();
         }
       )
       .subscribe();
+
     return () => {
-      supabase.removeChannel(ch);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      void supabase.removeChannel(channel);
     };
-  }, [loadData, school.id]);
+  }, [loadData, debouncedLoad, school?.id]);
 
   const markRead = async (id: string) => {
+    // FIX 7: Pehle UI me hi Read kar do, pura data dobara mat mangwao
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, is_read: true } : r)));
     const res = await fetch('/api/notifications', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -88,9 +117,38 @@ export default function NotificationsPage() {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       toast({ title: 'Update failed', description: err.error, variant: 'error' });
+      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, is_read: false } : r)));
+    }
+  };
+
+  // NEW: Mark All Read
+  const markAllRead = async () => {
+    const unreadCount = rows.filter((r) => !r.is_read).length;
+    if (unreadCount === 0) {
+      toast({ title: 'All already read', variant: 'success' });
       return;
     }
-    void loadData();
+    setMarkingAll(true);
+    const prevRows = rows;
+    // Pehle UI update
+    setRows((prev) => prev.map((r) => ({ ...r, is_read: true })));
+    try {
+      const res = await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mark_all: true, is_read: true }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed');
+      }
+      toast({ title: `${unreadCount} notifications marked as read`, variant: 'success' });
+    } catch (e: any) {
+      setRows(prevRows);
+      toast({ title: 'Update failed', description: e.message, variant: 'error' });
+    } finally {
+      setMarkingAll(false);
+    }
   };
 
   const handleSend = async (e: React.FormEvent) => {
@@ -110,11 +168,14 @@ export default function NotificationsPage() {
       toast({ title: 'Notification dispatched via Realtime', variant: 'success' });
       setOpenSend(false);
       setForm({ category: 'fees', target_audience: 'Students', title: '', body: '' });
-      void loadData();
+      // FIX 8: Yahan loadData nahi call kiya - Realtime khud le aayega, double fetch khatam
+      debouncedLoad();
     } finally {
       setSubmitting(false);
     }
   };
+
+  const unreadCount = rows.filter((r) => !r.is_read).length;
 
   const columns: TableColumn<NotificationRow>[] = [
     {
@@ -159,6 +220,35 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-6">
+      {/* NEW: Uper wala bar - Mark All Read + Send Alert */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold">Notifications Center</h2>
+          <p className="text-xs text-slate-500">
+            {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'} • Real-time attendance alerts, fee reminders, homework alerts, and examination notices.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={markAllRead}
+            disabled={markingAll || unreadCount === 0}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-1.5 text-xs font-semibold disabled:opacity-50"
+          >
+            <CheckCheck className="h-3.5 w-3.5" />
+            {markingAll ? 'Marking...' : `Mark All Read (${unreadCount})`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpenSend(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-teal-700 hover:bg-teal-800 px-3.5 py-1.5 text-xs font-semibold text-white"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Send Alert
+          </button>
+        </div>
+      </div>
+
       <DataTable
         title="Notifications Center"
         subtitle="Real-time attendance alerts, fee reminders, homework alerts, and examination notices."

@@ -149,12 +149,13 @@ export default function SchoolComplaintsPage() {
       if (roleFilter !== 'all' && c.submitterType !== roleFilter) return false;
       if (statusFilter !== 'all' && c.status !== statusFilter) return false;
       if (!q) return true;
+      // FIX: agar koi field khaali / null ho to crash na ho
       return (
-        c.subject.toLowerCase().includes(q) ||
-        c.description.toLowerCase().includes(q) ||
-        c.submitterName.toLowerCase().includes(q) ||
-        c.submitterCode.toLowerCase().includes(q) ||
-        c.category.toLowerCase().includes(q)
+        (c.subject || '').toLowerCase().includes(q) ||
+        (c.description || '').toLowerCase().includes(q) ||
+        (c.submitterName || '').toLowerCase().includes(q) ||
+        (c.submitterCode || '').toLowerCase().includes(q) ||
+        (c.category || '').toLowerCase().includes(q)
       );
     });
   }, [complaints, roleFilter, statusFilter, query]);

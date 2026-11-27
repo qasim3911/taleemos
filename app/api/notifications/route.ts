@@ -42,12 +42,14 @@ const CreateNotificationSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
+// FIX: Mark All ke liye schema update - id optional, mark_all optional
 const MarkReadSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().uuid().optional(),
+  mark_all: z.boolean().optional(),
   is_read: z.boolean().default(true),
 });
 
-export async function GET() {
+export async function GET(request: Request) {
   const authResult = await getSchoolContext();
   if (authResult.status !== 'ok') {
     return NextResponse.json({ error: 'Unauthorized or unapproved school.' }, { status: 403 });
@@ -55,12 +57,18 @@ export async function GET() {
 
   const { context } = authResult;
   const db = createSupabaseAdminClient() ?? (await createSupabaseServerClient())!;
+
+  // FIX: Frontend se ?limit=50 aayega, us ko use karo. Max 100 se zyada nahi.
+  const { searchParams } = new URL(request.url);
+  const limitParam = parseInt(searchParams.get('limit') || '50', 10);
+  const limit = Number.isNaN(limitParam) ? 50 : Math.min(Math.max(limitParam, 1), 100);
+
   const { data, error } = await db
     .from('notifications')
     .select('*')
     .eq('school_id', context.school.id)
     .order('created_at', { ascending: false })
-    .limit(100);
+    .limit(limit);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
@@ -150,6 +158,26 @@ export async function PATCH(request: Request) {
     }
 
     const db = createSupabaseAdminClient() ?? (await createSupabaseServerClient())!;
+
+    // NEW: Mark All Read - saare unread ko ek hi query me Read kar do
+    if (parsed.data.mark_all) {
+      const { error } = await db
+        .from('notifications')
+        .update({ is_read: parsed.data.is_read })
+        .eq('school_id', context.school.id)
+        .eq('is_read', false);
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+      return NextResponse.json({ success: true, marked_all: true });
+    }
+
+    // OLD: Single Mark Read
+    if (!parsed.data.id) {
+      return NextResponse.json({ error: 'Invalid notification ID.' }, { status: 400 });
+    }
+
     const { error } = await db
       .from('notifications')
       .update({ is_read: parsed.data.is_read })
